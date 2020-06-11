@@ -2,8 +2,8 @@
 
 namespace GhoSter\AutoInstagramPost\Model;
 
-use Magento\Framework\App\Filesystem\DirectoryList;
 use GhoSter\AutoInstagramPost\Model\Config as InstagramConfig;
+use Magento\Framework\App\Filesystem\DirectoryList;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -16,6 +16,7 @@ use Psr\Log\LoggerInterface;
 //@codingStandardsIgnoreFile
 class Instagram
 {
+    const API_DOMAIN = 'https://i.instagram.com/';
     const API_URL = 'https://i.instagram.com/api/v1/';
     const USER_AGENT = 'Instagram 8.2.0 Android (18/4.3; 320dpi; 720x1280; Xiaomi; HM 1SW; armani; qcom; en_US)';
     const IG_SIG_KEY = '55e91155636eaa89ba5ed619eb4645a4daf1103f2161dbfe6fd94d5ea7716095';
@@ -38,7 +39,6 @@ class Instagram
     protected $directoryList;
     protected $config;
     protected $logger;
-
 
     /**
      * Default class constructor.
@@ -64,7 +64,6 @@ class Instagram
         $this->directoryList = $directoryList;
 
         $this->IGDataPath = $this->directoryList->getPath('var') . DIRECTORY_SEPARATOR;
-
     }
 
     public function generateDeviceId()
@@ -137,7 +136,6 @@ class Instagram
      */
     public function isLoggedIn()
     {
-
         $account = $this->config->getAccountInformation();
         $username = isset($account['username']) ? ($account['username']) : null;
 
@@ -166,8 +164,11 @@ class Instagram
     public function login($force = false)
     {
         if (!$this->isLoggedIn || $force) {
-            $fetch = $this->request('si/fetch_headers/?challenge_type=signup&guid=' . $this->generateUUID(false), null,
-                true);
+            $fetch = $this->request(
+                'si/fetch_headers/?challenge_type=signup&guid=' . $this->generateUUID(false),
+                null,
+                true
+            );
             preg_match('#Set-Cookie: csrftoken=([^;]+)#', $fetch[0], $token);
 
             $data = [
@@ -263,7 +264,6 @@ class Instagram
             if (!is_null($post)) {
                 if (!is_array($post)) {
                     $this->logger->critical('DATA: ' . urldecode($post) . "\n");
-
                 }
             }
             $this->logger->critical("RESPONSE: $body\n\n");
@@ -449,7 +449,6 @@ class Instagram
 
         if ($this->debug) {
             $this->logger->critical('RESPONSE: ' . substr($resp, $header_len) . "\n\n");
-
         }
 
         $configure = $this->configureVideo($upload_id, $video, $caption);
@@ -471,8 +470,12 @@ class Instagram
             $body .= 'Content-Disposition: ' . $b['type'] . '; name="' . $b['name'] . '"';
             if (isset($b['filename'])) {
                 $ext = pathinfo($b['filename'], PATHINFO_EXTENSION);
-                $body .= '; filename="' . 'pending_media_' . number_format(round(microtime(true) * 1000), 0, '',
-                        '') . '.' . $ext . '"';
+                $body .= '; filename="' . 'pending_media_' . number_format(
+                    round(microtime(true) * 1000),
+                    0,
+                    '',
+                    ''
+                ) . '.' . $ext . '"';
             }
             if (isset($b['headers']) && is_array($b['headers'])) {
                 foreach ($b['headers'] as $header) {
@@ -548,58 +551,40 @@ class Instagram
      */
     public function uploadPhoto($photo, $caption = null, $upload_id = null)
     {
-        $endpoint = self::API_URL . 'upload/photo/';
+        $endpoint = self::API_DOMAIN . 'rupload_igphoto/';
         $boundary = $this->uuid;
 
         if (!is_null($upload_id)) {
             $fileToUpload = $this->createVideoIcon($photo);
         } else {
             $upload_id = number_format(round(microtime(true) * 1000), 0, '', '');
-            $fileToUpload = file_get_contents($photo);
+            $fileToUpload = file_get_contents($photo, FILE_BINARY);
         }
 
-        $bodies = [
-            [
-                'type' => 'form-data',
-                'name' => 'upload_id',
-                'data' => $upload_id,
-            ],
-            [
-                'type' => 'form-data',
-                'name' => '_uuid',
-                'data' => $this->uuid,
-            ],
-            [
-                'type' => 'form-data',
-                'name' => '_csrftoken',
-                'data' => $this->token,
-            ],
-            [
-                'type' => 'form-data',
-                'name' => 'image_compression',
-                'data' => '{"lib_name":"jt","lib_version":"1.3.0","quality":"70"}',
-            ],
-            [
-                'type' => 'form-data',
-                'name' => 'photo',
-                'data' => $fileToUpload,
-                'filename' => 'pending_media_' . number_format(round(microtime(true) * 1000), 0, '', '') . '.jpg',
-                'headers' => [
-                    'Content-Transfer-Encoding: binary',
-                    'Content-type: application/octet-stream',
-                ],
-            ],
+        $upload_name = "fb_uploader_" . $upload_id;
+        $endpoint = $endpoint . $upload_name;
+
+        $waterfall_id = $this->generateUUID(true);
+
+        $rupload_params = [
+            "retry_context" => '{"num_step_auto_retry":0,"num_reupload":0,"num_step_manual_retry":0}',
+            "media_type" => "1",
+            "xsharing_user_ids" => "[]",
+            "upload_id" => $upload_id,
+            "image_compression" => json_encode(
+                ["lib_name" => "moz", "lib_version" => "3.1.m", "quality" => "80"]
+            )
         ];
 
-        $data = $this->buildBody($bodies, $boundary);
         $headers = [
-            'Connection: close',
-            'Accept: */*',
-            'Content-type: multipart/form-data; boundary=' . $boundary,
-            'Content-Length: ' . strlen($data),
-            'Cookie2: $Version=1',
-            'Accept-Language: en-US',
-            'Accept-Encoding: gzip',
+            "Accept-Encoding: gzip",
+            "X-Instagram-Rupload-Params: " . json_encode($rupload_params),
+            "X_FB_PHOTO_WATERFALL_ID: " . $waterfall_id,
+            "X-Entity-Type: image/jpeg",
+            "Offset: 0",
+            "X-Entity-Name: " . $upload_name,
+            "X-Entity-Length: " . strlen($fileToUpload),
+            "Content-Type: application/octet-stream",
         ];
 
         $ch = curl_init();
@@ -615,7 +600,7 @@ class Instagram
         curl_setopt($ch, CURLOPT_COOKIEFILE, $this->IGDataPath . "$this->username-cookies.dat");
         curl_setopt($ch, CURLOPT_COOKIEJAR, $this->IGDataPath . "$this->username-cookies.dat");
         curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $fileToUpload);
 
         $resp = curl_exec($ch);
         $header_len = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
@@ -646,7 +631,7 @@ class Instagram
      *    icon/thumbnail for the video
      */
 
-    function createVideoIcon($file)
+    public function createVideoIcon($file)
     {
         /* should install ffmpeg for the method to work successfully  */
         $ffmpeg = $this->checkFFMPEG();
@@ -669,7 +654,7 @@ class Instagram
      *    name of the library if present, false otherwise
      */
 
-    function checkFFMPEG()
+    public function checkFFMPEG()
     {
         @exec('ffmpeg -version 2>&1', $output, $returnvalue);
         if ($returnvalue === 0) {
@@ -692,7 +677,7 @@ class Instagram
      * @return image
      *    icon/thumbnail for the video
      */
-    function createIconGD($file, $size = 100, $raw = true)
+    public function createIconGD($file, $size = 100, $raw = true)
     {
         list($width, $height) = getimagesize($file);
         if ($width > $height) {
@@ -782,7 +767,7 @@ class Instagram
      *    length of the file in seconds
      */
 
-    function getSeconds($file)
+    public function getSeconds($file)
     {
         $ffmpeg = $this->checkFFMPEG();
         if ($ffmpeg) {
@@ -1731,8 +1716,10 @@ class Instagram
             if (!is_dir($this->IGDataPath . 'backup/' . "$this->username-" . date('Y-m-d'))) {
                 mkdir($this->IGDataPath . 'backup/' . "$this->username-" . date('Y-m-d'));
             }
-            file_put_contents($this->IGDataPath . 'backup/' . "$this->username-" . date('Y-m-d') . '/' . $item['id'] . '.jpg',
-                file_get_contents($item['image_versions2']['candidates'][0]['url']));
+            file_put_contents(
+                $this->IGDataPath . 'backup/' . "$this->username-" . date('Y-m-d') . '/' . $item['id'] . '.jpg',
+                file_get_contents($item['image_versions2']['candidates'][0]['url'])
+            );
         }
     }
 

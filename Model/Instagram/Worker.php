@@ -170,7 +170,6 @@ class Worker implements WorkerInterface
         ) {
             try {
                 $caption = $this->instagramHelper->getInstagramPostDescription($product);
-
                 $result = $this->getInstagram()->uploadPhoto($image, $caption);
 
                 if ($this->recordLog) {
